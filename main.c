@@ -194,6 +194,7 @@ extern __u64 hyperlight_dispatch_get_elf_entry(void);
 static struct uk_thread *hyperlight_deferred_thread;
 static struct uk_sched *hyperlight_deferred_sched;
 extern __uptr hyperlight_kernel_fsbase; /* defined in arch/x86/sysctx.c */
+extern __u64 hyperlight_user_stack_top; /* defined in posix-process/process.c */
 static __uptr hyperlight_elf_main_addr; /* main() in loaded ELF (0 = use _start) */
 static __uptr hyperlight_elf_libc_addr; /* musl __libc struct in loaded ELF */
 
@@ -692,6 +693,10 @@ int main(int argc, const char *argv[])
 		    (void *) ((uintptr_t) app_thread->_mem.stack
 			      + PAGES2BYTES(CONFIG_APPELFLOADER_STACK_NBPAGES)),
 		    (void *) app_thread->ctx.sp);
+#if CONFIG_PLAT_HYPERLIGHT
+	hyperlight_user_stack_top = (uintptr_t) app_thread->_mem.stack
+		+ PAGES2BYTES(CONFIG_APPELFLOADER_STACK_NBPAGES);
+#endif
 	uk_pr_debug("%s: Application entry at %p\n",
 		    progname,
 		    (void *) app_thread->ctx.ip);
