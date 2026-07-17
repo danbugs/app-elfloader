@@ -689,6 +689,13 @@ static int elf_load_fd(struct elf_prog *elf_prog, Elf *elf, int fd)
 		    (uint64_t)elf_prog->vabase,
 		    (uint64_t)elf_prog->vabase + elf_prog->valen);
 
+	uk_pr_crit("ELF LOAD: %s base=0x%"PRIx64" end=0x%"PRIx64
+		   " align=0x%"PRIx64"\n",
+		   elf_prog->name,
+		   (uint64_t)elf_prog->vabase,
+		   (uint64_t)elf_prog->vabase + elf_prog->valen,
+		   (uint64_t)elf_prog->align);
+
 	/* Load segments to allocated memory and set start & entry.
 	 * Unlike in the mmap case, here we already know the vabase, so update
 	 * it now.
