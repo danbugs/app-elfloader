@@ -678,8 +678,10 @@ static int elf_load_fd(struct elf_prog *elf_prog, Elf *elf, int fd)
 	elf_prog->vabase = uk_memalign(elf_prog->a, elf_prog->align,
 				       elf_prog->valen);
 	if (unlikely(!elf_prog->vabase)) {
-		uk_pr_debug("%s: Not enough memory to load image (failed to allocate %"PRIu64" bytes)\n",
-			    elf_prog->name, (uint64_t)elf_prog->valen);
+		uk_pr_crit("%s: ENOMEM allocating %"PRIu64" bytes "
+			   "(align=0x%"PRIx64")\n",
+			   elf_prog->name, (uint64_t)elf_prog->valen,
+			   (uint64_t)elf_prog->align);
 		ret = -ENOMEM;
 		goto err_out;
 	}
@@ -1034,8 +1036,8 @@ static struct elf_prog *do_elf_load_vfs(struct uk_alloc *a, const char *path,
 
 	fd = open(path, O_RDONLY);
 	if (unlikely(fd < 0)) {
-		uk_pr_err("%s: Failed to execute %s: %s\n",
-			  progname, path, strerror(errno));
+		uk_pr_crit("%s: Failed to open %s: %s (%d)\n",
+			   progname, path, strerror(errno), errno);
 		ret = -errno;
 		goto err_out;
 	}
@@ -1080,8 +1082,9 @@ static struct elf_prog *do_elf_load_vfs(struct uk_alloc *a, const char *path,
 		struct vfscore_file *fp = vfscore_get_file(fd);
 		struct cpiovfs_node *np;
 		if (!fp || !fp->f_dentry || !fp->f_dentry->d_vnode) {
-			uk_pr_err("%s: Cannot get vnode for %s\n",
-				  progname, path);
+			uk_pr_crit("%s: Cannot get vnode for %s "
+				   "(fp=%p)\n", progname, path,
+				   (void *)fp);
 			ret = -ENOENT;
 			goto err_close_fd;
 		}
@@ -1164,23 +1167,25 @@ struct elf_prog *elf_load_vfs(struct uk_alloc *a, const char *path,
 
 	elf_prog = do_elf_load_vfs(a, path, progname, false);
 	if (PTRISERR(elf_prog) || !elf_prog) {
-		err = PTR2ERR(elf_prog);
+		err = elf_prog ? PTR2ERR(elf_prog) : -ENOENT;
+		uk_pr_crit("%s: do_elf_load_vfs failed (%d)\n", progname, err);
 		goto err_out;
 	}
 
 	/* Load program interpreter/dynamic loader */
 	if (elf_prog->interp.required) {
-		uk_pr_debug("%s: Loading program interpreter %s...\n",
-			    elf_prog->name, elf_prog->interp.path);
+		uk_pr_crit("%s: Loading interpreter %s...\n",
+			   elf_prog->name, elf_prog->interp.path);
 		elf_prog->interp.prog = do_elf_load_vfs(a,
 							elf_prog->interp.path,
 							"<interp>", true);
 		if (unlikely(PTRISERR(elf_prog->interp.prog) ||
 			     !elf_prog->interp.prog)) {
-			err = PTR2ERR(elf_prog->interp.prog);
-			uk_pr_err("%s: Failed to load program interpreter %s: %s\n",
-				  elf_prog->name, elf_prog->interp.path,
-				  strerror(-err));
+			err = elf_prog->interp.prog
+				? PTR2ERR(elf_prog->interp.prog) : -ENOENT;
+			uk_pr_crit("%s: Failed to load interpreter %s (%d)\n",
+				   elf_prog->name, elf_prog->interp.path,
+				   err);
 			goto err_unload_prog;
 		}
 	}

@@ -31,15 +31,18 @@ static int uk_binfmt_load_elf(struct uk_binfmt_loader_args *args)
 	 * check the parameters before we load the file, as atm we're forced
 	 * to do an elf_unload() on bad parameters.
 	 */
+	uk_pr_crit("execve binfmt: loading '%s' (prog='%s')\n",
+		   args->pathname, args->progname);
 	prog = elf_load_vfs(args->alloc, args->pathname, args->progname);
-	if (unlikely(PTRISERR(prog))) {
-		rc = PTR2ERR(prog);
+	if (unlikely(PTRISERR(prog) || !prog)) {
+		rc = prog ? PTR2ERR(prog) : -ENOENT;
 		if (rc == -ENOEXEC) {
 			uk_pr_warn("%s not handled by ELF binfmt loader\n",
 				   args->pathname);
 			return UK_BINFMT_NOT_HANDLED;
 		}
-		uk_pr_err("Could not load ELF (%d)\n", rc);
+		uk_pr_crit("Could not load ELF '%s' (%d)\n",
+			   args->pathname, rc);
 		return rc;
 	}
 
