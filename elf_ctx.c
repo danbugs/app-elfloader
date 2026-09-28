@@ -101,6 +101,94 @@ extern char *vdso_image_addr;
 #error "Unsupported architecture"
 #endif
 
+#if CONFIG_ARCH_ARM_64
+/* A field of an ID register: unsigned, or signed for those where 0xf means
+ * "not implemented" (FP, AdvSIMD).
+ */
+#define ID_FIELD(reg, shift)	(((reg) >> (shift)) & 0xf)
+#define ID_SFIELD(reg, shift)	((int)((__s64)((reg) << (60 - (shift))) >> 60))
+
+#define ID_READ(name)							\
+	({ __u64 __v; __asm__ ("mrs %0, " #name : "=r"(__v)); __v; })
+
+/*
+ * AT_HWCAP as Linux reports it on arm64 (uapi/asm/hwcap.h), from the ID
+ * registers: userspace learns the CPU's features from it rather than by
+ * reading those registers, and some programs refuse to run without it
+ * (.NET needs ASIMD).  Features whose state the kernel would have to
+ * manage for the program are left out: SVE, pointer authentication keys,
+ * and the timer event stream.
+ */
+static __u64 elf_arm64_hwcap(void)
+{
+	__u64 pfr0 = ID_READ(id_aa64pfr0_el1);
+	__u64 pfr1 = ID_READ(id_aa64pfr1_el1);
+	__u64 isar0 = ID_READ(id_aa64isar0_el1);
+	__u64 isar1 = ID_READ(id_aa64isar1_el1);
+	__u64 mmfr2 = ID_READ(id_aa64mmfr2_el1);
+	__u64 hwcap = 1UL << 11;	/* CPUID: ID registers are readable */
+
+	if (ID_SFIELD(pfr0, 16) >= 0)
+		hwcap |= 1UL << 0;	/* FP */
+	if (ID_SFIELD(pfr0, 16) >= 1)
+		hwcap |= 1UL << 9;	/* FPHP */
+	if (ID_SFIELD(pfr0, 20) >= 0)
+		hwcap |= 1UL << 1;	/* ASIMD */
+	if (ID_SFIELD(pfr0, 20) >= 1)
+		hwcap |= 1UL << 10;	/* ASIMDHP */
+	if (ID_FIELD(pfr0, 48) >= 1)
+		hwcap |= 1UL << 24;	/* DIT */
+	if (ID_FIELD(isar0, 4) >= 1)
+		hwcap |= 1UL << 3;	/* AES */
+	if (ID_FIELD(isar0, 4) >= 2)
+		hwcap |= 1UL << 4;	/* PMULL */
+	if (ID_FIELD(isar0, 8) >= 1)
+		hwcap |= 1UL << 5;	/* SHA1 */
+	if (ID_FIELD(isar0, 12) >= 1)
+		hwcap |= 1UL << 6;	/* SHA2 */
+	if (ID_FIELD(isar0, 12) >= 2)
+		hwcap |= 1UL << 21;	/* SHA512 */
+	if (ID_FIELD(isar0, 16) >= 1)
+		hwcap |= 1UL << 7;	/* CRC32 */
+	if (ID_FIELD(isar0, 20) >= 2)
+		hwcap |= 1UL << 8;	/* ATOMICS */
+	if (ID_FIELD(isar0, 28) >= 1)
+		hwcap |= 1UL << 12;	/* ASIMDRDM */
+	if (ID_FIELD(isar0, 32) >= 1)
+		hwcap |= 1UL << 17;	/* SHA3 */
+	if (ID_FIELD(isar0, 36) >= 1)
+		hwcap |= 1UL << 18;	/* SM3 */
+	if (ID_FIELD(isar0, 40) >= 1)
+		hwcap |= 1UL << 19;	/* SM4 */
+	if (ID_FIELD(isar0, 44) >= 1)
+		hwcap |= 1UL << 20;	/* ASIMDDP */
+	if (ID_FIELD(isar0, 48) >= 1)
+		hwcap |= 1UL << 23;	/* ASIMDFHM */
+	if (ID_FIELD(isar0, 52) >= 1)
+		hwcap |= 1UL << 27;	/* FLAGM */
+	if (ID_FIELD(isar1, 0) >= 1)
+		hwcap |= 1UL << 16;	/* DCPOP */
+	if (ID_FIELD(isar1, 12) >= 1)
+		hwcap |= 1UL << 13;	/* JSCVT */
+	if (ID_FIELD(isar1, 16) >= 1)
+		hwcap |= 1UL << 14;	/* FCMA */
+	if (ID_FIELD(isar1, 20) >= 1)
+		hwcap |= 1UL << 15;	/* LRCPC */
+	if (ID_FIELD(isar1, 20) >= 2)
+		hwcap |= 1UL << 26;	/* ILRCPC */
+	if (ID_FIELD(isar1, 36) >= 1)
+		hwcap |= 1UL << 29;	/* SB */
+	if (ID_FIELD(mmfr2, 32) >= 1)
+		hwcap |= 1UL << 25;	/* USCAT */
+	if (ID_FIELD(pfr1, 4) >= 2)
+		hwcap |= 1UL << 28;	/* SSBS */
+	return hwcap;
+}
+#define UK_AUXV_HWCAP		elf_arm64_hwcap()
+#else /* !CONFIG_ARCH_ARM_64 */
+#define UK_AUXV_HWCAP		0x0
+#endif /* !CONFIG_ARCH_ARM_64 */
+
 static void infoblk_push(struct ukarch_ctx *ctx, void *buf, __sz len)
 {
 	UK_ASSERT(ctx);
@@ -221,7 +309,7 @@ void elf_ctx_init(struct ukarch_ctx *ctx, struct elf_prog *prog,
 		{ AT_ENTRY, prog->entry },
 		{ AT_FLAGS, 0x0 },
 		{ AT_CLKTCK, 0x64 }, /* Mimic Linux */
-		{ AT_HWCAP, 0x0 },
+		{ AT_HWCAP, UK_AUXV_HWCAP },
 		{ AT_PAGESZ, 4096 },
 		/* base addr of interpreter */
 		{ AT_BASE, prog->interp.prog ?
